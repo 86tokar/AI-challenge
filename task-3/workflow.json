@@ -1,0 +1,353 @@
+{
+  "name": "Telegram Learning Bot (Teacher + Examiner)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message", "callback_query"],
+        "additionalFields": {}
+      },
+      "id": "node-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [-200, 300],
+      "webhookId": "telegram-learning-bot",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_TELEGRAM_CRED_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nlet chatId, userId, text = '', callbackData = '', messageId, callbackId;\n\nif (item.message) {\n  chatId = item.message.chat.id;\n  userId = item.message.from.id;\n  text = (item.message.text || '').trim();\n} else if (item.callback_query) {\n  chatId = item.callback_query.message.chat.id;\n  userId = item.callback_query.from.id;\n  callbackData = item.callback_query.data || '';\n  messageId = item.callback_query.message.message_id;\n  callbackId = item.callback_query.id;\n}\n\nlet action = 'unknown';\nlet payload = {};\n\nif (text.startsWith('/start')) {\n  action = 'start';\n} else if (text.startsWith('/learn')) {\n  const url = text.replace('/learn', '').trim();\n  if (url && /^https?:\\/\\//i.test(url)) { action = 'learn'; payload.url = url; }\n  else { action = 'start'; payload.invalidUrl = true; }\n} else if (text.startsWith('/quiz')) {\n  action = 'list_topics';\n} else if (callbackData.startsWith('topic:')) {\n  action = 'start_quiz';\n  payload.materialId = callbackData.slice(6);\n} else if (callbackData.startsWith('ans:')) {\n  action = 'answer';\n  payload.answer = callbackData.slice(4);\n} else if (callbackData === 'quiz_now') {\n  action = 'list_topics';\n} else {\n  action = 'start';\n}\n\nreturn [{ json: { action, chatId, userId, messageId, callbackId, ...payload } }];"
+      },
+      "id": "node-route",
+      "name": "Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [20, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "start",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "start"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "learn",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "learn"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "list_topics",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "list_topics"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "start_quiz",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "start_quiz"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "answer",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "answer"
+            }
+          ]
+        },
+        "options": { "fallbackOutput": "extra", "renameFallbackOutput": "default" }
+      },
+      "id": "node-switch",
+      "name": "Switch Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [240, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const u = $('Route').first().json;\nconst text = u.invalidUrl\n  ? 'Please provide a valid URL.\\nExample: /learn https://example.com/article'\n  : '👋 *Welcome to the Learning Bot!*\\n\\nI help you study any article and test yourself.\\n\\n*Commands:*\\n/learn <url> — submit a learning material\\n/quiz — pick a saved topic and take a 5-question quiz\\n/start — show this help';\nreturn [{ json: { chatId: u.chatId, text, reply_markup: {} } }];"
+      },
+      "id": "node-start-msg",
+      "name": "Start Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, -120]
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" },
+            { "name": "Accept", "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
+            { "name": "Accept-Language", "value": "en-US,en;q=0.9" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "responseFormat": "text", "neverError": true } },
+          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } },
+          "timeout": 30000,
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "node-http-fetch",
+      "name": "Fetch URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const u = $('Route').first().json;\nconst raw = $input.first().json;\nconst html = typeof raw === 'string' ? raw : (raw.data || raw.body || JSON.stringify(raw));\n\nconst titleMatch = html.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i);\nconst title = titleMatch ? titleMatch[1].replace(/\\s+/g,' ').trim() : 'Untitled';\n\nlet text = html\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n  .replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, ' ')\n  .replace(/<[^>]+>/g, ' ')\n  .replace(/&nbsp;/g,' ')\n  .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'\"').replace(/&#39;/g,\"'\")\n  .replace(/\\s+/g, ' ')\n  .trim();\n\nif (!text || text.length < 50) {\n  return [{ json: { chatId: u.chatId, text: '⚠️ Could not extract readable content from that URL.', reply_markup: {}, _skip: true } }];\n}\n\ntext = text.slice(0, 8000);\nreturn [{ json: { chatId: u.chatId, userId: u.userId, url: u.url, title, content: text } }];"
+      },
+      "id": "node-clean-html",
+      "name": "Clean HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 80]
+    },
+    {
+      "parameters": {
+        "model": { "__rl": true, "value": "gpt-4o-mini", "mode": "list" },
+        "options": { "temperature": 0.3 }
+      },
+      "id": "node-llm-teacher",
+      "name": "OpenAI (Teacher)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [900, 280],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_OPENAI_CRED_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are *Teacher AI*. Analyse the learning material and produce a clear structured summary.\n\nReturn ONLY valid minified JSON (no markdown, no code fences) matching exactly this schema:\n{\n  \"title\": string,\n  \"difficulty\": \"beginner\" | \"intermediate\" | \"advanced\",\n  \"mainConcepts\": string[],\n  \"keyPoints\": string[]  // between 5 and 7 items\n,\n  \"summary\": string      // 2-3 sentence overview\n}\n\nMaterial title: {{ $json.title }}\n\nMaterial content:\n{{ $json.content }}",
+        "hasOutputParser": false
+      },
+      "id": "node-teacher-chain",
+      "name": "Teacher Agent",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [900, 80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const u = $('Route').first().json;\nconst cleaned = $('Clean HTML').first().json;\nconst aiOut = $input.first().json;\n\nlet resp = aiOut.text || aiOut.response || aiOut.output || aiOut.content || '';\nif (typeof resp !== 'string') resp = JSON.stringify(resp);\nresp = resp.replace(/```json|```/g, '').trim();\nconst jsonMatch = resp.match(/\\{[\\s\\S]*\\}/);\nif (jsonMatch) resp = jsonMatch[0];\n\nlet parsed;\ntry { parsed = JSON.parse(resp); }\ncatch (e) {\n  parsed = { title: cleaned.title, difficulty: 'unknown', mainConcepts: [], keyPoints: [resp.slice(0, 400)], summary: '' };\n}\n\nconst sd = $getWorkflowStaticData('global');\nsd.materials = sd.materials || {};\nconst uid = String(u.userId);\nsd.materials[uid] = sd.materials[uid] || [];\n\nconst id = 'LM-' + Date.now().toString(36).toUpperCase();\nconst material = {\n  id,\n  url: cleaned.url,\n  title: parsed.title || cleaned.title,\n  content: cleaned.content,\n  addedDate: new Date().toISOString(),\n  difficulty: parsed.difficulty || 'unknown',\n  summary: parsed.summary || '',\n  keyPoints: parsed.keyPoints || [],\n  mainConcepts: parsed.mainConcepts || []\n};\nsd.materials[uid].push(material);\n\nconst safe = s => String(s || '').replace(/[*_`\\[\\]]/g, m => '\\\\' + m);\n\nconst msg = `📚 *${safe(material.title)}*\\n_Difficulty: ${safe(material.difficulty)}_\\n\\n${safe(material.summary)}\\n\\n*Main concepts:* ${material.mainConcepts.map(safe).join(', ') || '—'}\\n\\n*Key points:*\\n` +\n  material.keyPoints.map((p, i) => `${i + 1}. ${safe(p)}`).join('\\n') +\n  `\\n\\n_Saved as ${id}._`;\n\nconst reply_markup = { inline_keyboard: [[{ text: '📝 Take quiz on this material', callback_data: 'topic:' + id }]] };\n\nreturn [{ json: { chatId: u.chatId, text: msg, reply_markup } }];"
+      },
+      "id": "node-save-material",
+      "name": "Save Material & Format",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 80]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const u = $('Route').first().json;\nconst sd = $getWorkflowStaticData('global');\nconst uid = String(u.userId);\nconst allUsers = Object.keys(sd.materials || {});\nconst mats = (sd.materials && sd.materials[uid]) || [];\n\nlet text, reply_markup;\nif (mats.length === 0) {\n  text = `You have no saved materials yet.\\nSend /learn <url> to add one.\\n\\n[debug] your uid=${uid}, known uids=[${allUsers.join(',')}]`;\n  reply_markup = {};\n} else {\n  text = '📚 Your saved topics\\nChoose one to start a 5-question quiz:';\n  reply_markup = { inline_keyboard: mats.map(m => [{ text: (m.title || m.id).slice(0, 60), callback_data: 'topic:' + m.id }]) };\n}\nreturn [{ json: { chatId: u.chatId, text, reply_markup } }];"
+      },
+      "id": "node-list-topics",
+      "name": "List Topics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 460]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const u = $('Route').first().json;\nconst sd = $getWorkflowStaticData('global');\nconst uid = String(u.userId);\nconst mats = (sd.materials && sd.materials[uid]) || [];\nconst mat = mats.find(m => m.id === u.materialId);\nif (!mat) {\n  return [{ json: { chatId: u.chatId, text: '⚠️ Material not found. Send /quiz to see saved topics.', reply_markup: {}, _skipAI: true } }];\n}\nreturn [{ json: { chatId: u.chatId, userId: u.userId, materialId: mat.id, title: mat.title, content: mat.content } }];"
+      },
+      "id": "node-load-material",
+      "name": "Load Material",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 640]
+    },
+    {
+      "parameters": {
+        "model": { "__rl": true, "value": "gpt-4o-mini", "mode": "list" },
+        "options": { "temperature": 0.5 }
+      },
+      "id": "node-llm-examiner",
+      "name": "OpenAI (Examiner)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [700, 840],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_OPENAI_CRED_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are *Examiner AI*. Based ONLY on the material below, write exactly 5 multiple-choice questions that test understanding (not trivia). Each must have 4 options A–D, exactly one correct, and a short explanation.\n\nReturn ONLY valid minified JSON (no markdown, no code fences) matching exactly:\n{\n  \"questions\": [\n    { \"id\": \"Q1\", \"question\": string, \"options\": { \"A\": string, \"B\": string, \"C\": string, \"D\": string }, \"correctAnswer\": \"A\" | \"B\" | \"C\" | \"D\", \"explanation\": string }\n  ]\n}\n\nMaterial title: {{ $json.title }}\n\nMaterial content:\n{{ $json.content }}",
+        "hasOutputParser": false
+      },
+      "id": "node-examiner-chain",
+      "name": "Examiner Agent",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [700, 640]
+    },
+    {
+      "parameters": {
+        "jsCode": "const u = $('Load Material').first().json;\nconst aiOut = $input.first().json;\n\nlet resp = aiOut.text || aiOut.response || aiOut.output || aiOut.content || '';\nif (typeof resp !== 'string') resp = JSON.stringify(resp);\nresp = resp.replace(/```json|```/g, '').trim();\nconst m = resp.match(/\\{[\\s\\S]*\\}/);\nif (m) resp = m[0];\n\nlet parsed;\ntry { parsed = JSON.parse(resp); } catch (e) { parsed = { questions: [] }; }\nconst questions = (parsed.questions || []).slice(0, 5).map((q, i) => ({\n  id: q.id || ('Q' + (i + 1)),\n  question: q.question,\n  options: q.options || {},\n  correctAnswer: String(q.correctAnswer || '').toUpperCase().trim(),\n  explanation: q.explanation || ''\n}));\n\nif (questions.length === 0) {\n  return [{ json: { chatId: u.chatId, text: '⚠️ Failed to generate a quiz. Try /quiz again.', reply_markup: {} } }];\n}\n\nconst sd = $getWorkflowStaticData('global');\nsd.quizzes = sd.quizzes || {};\nconst uid = String(u.userId);\nsd.quizzes[uid] = { materialId: u.materialId, questions, currentIdx: 0, answers: [], score: 0, startedAt: new Date().toISOString() };\n\nconst safe = s => String(s || '').replace(/[*_`\\[\\]]/g, x => '\\\\' + x);\nconst q = questions[0];\nconst text = `🧠 *Question 1/${questions.length}*\\n\\n${safe(q.question)}\\n\\n` +\n  Object.entries(q.options).map(([k, v]) => `${k}) ${safe(v)}`).join('\\n');\nconst reply_markup = { inline_keyboard: [Object.keys(q.options).map(k => ({ text: k, callback_data: 'ans:' + k }))] };\n\nreturn [{ json: { chatId: u.chatId, text, reply_markup } }];"
+      },
+      "id": "node-save-quiz",
+      "name": "Save Quiz & Send Q1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 640]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const u = $('Route').first().json;\nconst sd = $getWorkflowStaticData('global');\nconst uid = String(u.userId);\nconst quiz = sd.quizzes && sd.quizzes[uid];\n\nif (!quiz || !quiz.questions || quiz.questions.length === 0) {\n  return [{ json: { chatId: u.chatId, text: 'No active quiz. Send /quiz to start one.', reply_markup: {} } }];\n}\n\nconst safe = s => String(s || '').replace(/[*_`\\[\\]]/g, x => '\\\\' + x);\nconst idx = quiz.currentIdx;\nconst q = quiz.questions[idx];\nconst userAns = String(u.answer || '').toUpperCase().trim();\nconst correct = String(q.correctAnswer || '').toUpperCase().trim();\n\nconst userText  = q.options && q.options[userAns]  ? String(q.options[userAns]).toLowerCase().trim()  : '';\nconst correctText = q.options && q.options[correct] ? String(q.options[correct]).toLowerCase().trim() : '';\nconst isCorrect = userAns === correct || (userText && correctText && userText === correctText);\n\nquiz.answers.push({ qid: q.id, question: q.question, user: userAns, correct, isCorrect, explanation: q.explanation });\nif (isCorrect) quiz.score++;\nquiz.currentIdx++;\n\nconst feedback = isCorrect\n  ? '✅ Correct!'\n  : `❌ Wrong. Correct answer: *${correct}*\\n_${safe(q.explanation)}_`;\n\nif (quiz.currentIdx < quiz.questions.length) {\n  const nq = quiz.questions[quiz.currentIdx];\n  const text = `${feedback}\\n\\n🧠 *Question ${quiz.currentIdx + 1}/${quiz.questions.length}*\\n\\n${safe(nq.question)}\\n\\n` +\n    Object.entries(nq.options).map(([k, v]) => `${k}) ${safe(v)}`).join('\\n');\n  const reply_markup = { inline_keyboard: [Object.keys(nq.options).map(k => ({ text: k, callback_data: 'ans:' + k }))] };\n  return [{ json: { chatId: u.chatId, text, reply_markup } }];\n}\n\nconst total = quiz.questions.length;\nconst pct = Math.round(quiz.score / total * 100);\nlet review = quiz.answers.map((a, i) =>\n  `${i + 1}. ${a.isCorrect ? '✅' : '❌'} _${safe(a.question).slice(0, 80)}_` +\n  (a.isCorrect ? '' : `\\n   Your: ${a.user || '—'} · Correct: ${a.correct}\\n   _${safe(a.explanation)}_`)\n).join('\\n');\n\nconst text = `${feedback}\\n\\n🏁 *Quiz finished!*\\nScore: *${quiz.score}/${total}* (${pct}%)\\n\\n*Review:*\\n${review}\\n\\nSend /quiz to try another topic.`;\n\ndelete sd.quizzes[uid];\nreturn [{ json: { chatId: u.chatId, text, reply_markup: {} } }];"
+      },
+      "id": "node-answer",
+      "name": "Validate Answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 820]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/botPASTE_YOUR_BOT_TOKEN_HERE/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ chat_id: $json.chatId, text: $json.text }, ($json.reply_markup && $json.reply_markup.inline_keyboard && $json.reply_markup.inline_keyboard.length) ? { reply_markup: $json.reply_markup } : {})) }}",
+        "options": {
+          "response": { "response": { "neverError": true, "responseFormat": "json" } }
+        }
+      },
+      "id": "node-send-tg",
+      "name": "Send Telegram Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 340]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "Route", "type": "main", "index": 0 }]]
+    },
+    "Route": {
+      "main": [[{ "node": "Switch Action", "type": "main", "index": 0 }]]
+    },
+    "Switch Action": {
+      "main": [
+        [{ "node": "Start Message", "type": "main", "index": 0 }],
+        [{ "node": "Fetch URL", "type": "main", "index": 0 }],
+        [{ "node": "List Topics", "type": "main", "index": 0 }],
+        [{ "node": "Load Material", "type": "main", "index": 0 }],
+        [{ "node": "Validate Answer", "type": "main", "index": 0 }]
+      ]
+    },
+    "Start Message": {
+      "main": [[{ "node": "Send Telegram Message", "type": "main", "index": 0 }]]
+    },
+    "Fetch URL": {
+      "main": [[{ "node": "Clean HTML", "type": "main", "index": 0 }]]
+    },
+    "Clean HTML": {
+      "main": [[{ "node": "Teacher Agent", "type": "main", "index": 0 }]]
+    },
+    "OpenAI (Teacher)": {
+      "ai_languageModel": [[{ "node": "Teacher Agent", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "Teacher Agent": {
+      "main": [[{ "node": "Save Material & Format", "type": "main", "index": 0 }]]
+    },
+    "Save Material & Format": {
+      "main": [[{ "node": "Send Telegram Message", "type": "main", "index": 0 }]]
+    },
+    "List Topics": {
+      "main": [[{ "node": "Send Telegram Message", "type": "main", "index": 0 }]]
+    },
+    "Load Material": {
+      "main": [[{ "node": "Examiner Agent", "type": "main", "index": 0 }]]
+    },
+    "OpenAI (Examiner)": {
+      "ai_languageModel": [[{ "node": "Examiner Agent", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "Examiner Agent": {
+      "main": [[{ "node": "Save Quiz & Send Q1", "type": "main", "index": 0 }]]
+    },
+    "Save Quiz & Send Q1": {
+      "main": [[{ "node": "Send Telegram Message", "type": "main", "index": 0 }]]
+    },
+    "Validate Answer": {
+      "main": [[{ "node": "Send Telegram Message", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": false }
+}
